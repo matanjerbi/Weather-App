@@ -265,3 +265,11 @@ main { padding-bottom: calc(var(--tabh) + 10px); }
 .unlock { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin: 10px 0; }
 .gloss .gitem { padding: 10px 2px; border-bottom: 1px solid var(--line); }
 .gloss .gitem div { color: #CFE0F5; font-size: 14px; }
+
+/* place names on the map */
+.citylbl { position: relative; }
+.citylbl i { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .55); }
+.citylbl span { position: absolute; left: 6px; top: -9px; white-space: nowrap; font-size: 12px; font-weight: 600; color: #F2F6FC; text-shadow: 0 0 3px #000, 0 0 2px #000, 0 1px 2px #000; direction: rtl; }
+.citylbl.big span { font-size: 13.5px; font-weight: 700; }
+.citylbl.sea span, .citylbl.water span { left: 0; transform: translateX(-50%); font-style: italic; font-weight: 500; color: #8FC3F0; font-size: 13px; letter-spacing: .5px; }
+.citylbl.peak span { left: 0; transform: translateX(-50%); font-size: 11px; color: #DDE7F5; }

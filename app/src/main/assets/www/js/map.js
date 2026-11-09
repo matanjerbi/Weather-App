@@ -123,18 +123,17 @@ export class WeatherMap {
     });
     this.map = map;
     map.attributionControl.setPrefix('');
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap © CARTO | Open-Meteo',
-    }).addTo(map);
+    map.attributionControl.addAttribution('Natural Earth | Open-Meteo');
 
+    // Offline basemap: land fill below the weather, coastlines/borders + Hebrew place names above it.
+    map.createPane('land').style.zIndex = 250;
     map.createPane('wx').style.zIndex = 350;
     map.createPane('wxtiles').style.zIndex = 340;
     const labels = map.createPane('labels');
     labels.style.zIndex = 460;
     labels.style.pointerEvents = 'none';
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd', maxZoom: 19, pane: 'labels',
-    }).addTo(map);
+    this.loadBasemap();
+    this.addPlaceNames();
 
     const pane = map.getPane('wx');
     this.heat = el('canvas', { class: 'wxc' });
@@ -156,6 +155,57 @@ export class WeatherMap {
     window.addEventListener('resize', () => { map.invalidateSize(); this.resize(); this.draw(); });
 
     this.resize();
+  }
+
+  async loadBasemap() {
+    try {
+      const d = await (await fetch('data/basemap.json')).json();
+      const landR = L.canvas({ pane: 'land', padding: 0.3 });
+      const lineR = L.canvas({ pane: 'labels', padding: 0.3 });
+      for (const g of d.land) {
+        L.geoJSON(g, { renderer: landR, interactive: false, style: { stroke: false, fill: true, fillColor: '#1C283B', fillOpacity: 1 } }).addTo(this.map);
+      }
+      for (const g of d.lines) {
+        L.geoJSON(g, { renderer: lineR, interactive: false, style: { color: '#E6EEF9', weight: 1.1, opacity: 0.75, fill: false } }).addTo(this.map);
+      }
+    } catch (e) { console.warn('basemap', e); }
+  }
+
+  addPlaceNames() {
+    const P = [
+      // [name, lat, lon, minZoom, kind]
+      ['ירושלים', 31.778, 35.235, 5, 'big'], ['תל אביב', 32.08, 34.78, 5, 'big'], ['חיפה', 32.79, 34.99, 5, 'big'],
+      ['באר שבע', 31.25, 34.79, 5, 'big'], ['אילת', 29.56, 34.95, 5, 'big'],
+      ['טבריה', 32.79, 35.53, 7], ['נצרת', 32.70, 35.30, 7], ['צפת', 32.965, 35.496, 7], ['קריית שמונה', 33.207, 35.571, 7],
+      ['אשדוד', 31.80, 34.65, 7], ['אשקלון', 31.67, 34.57, 7], ['נתניה', 32.33, 34.86, 7], ['דימונה', 31.07, 35.03, 7],
+      ['מצפה רמון', 30.61, 34.80, 7], ['עין בוקק', 31.20, 35.36, 7], ['קצרין', 32.99, 35.69, 7], ['ערד', 31.26, 35.21, 8],
+      ['רמת גן', 32.08, 34.81, 9], ['הרצליה', 32.165, 34.84, 9], ['רחובות', 31.89, 34.81, 8], ['מודיעין', 31.90, 35.01, 8],
+      ['בית שאן', 32.50, 35.50, 8], ['עפולה', 32.61, 35.29, 8], ['נהריה', 33.01, 35.10, 8], ['אריאל', 32.10, 35.17, 9],
+      ['החרמון ▲', 33.30, 35.79, 7, 'peak'], ['ים המלח', 31.50, 35.48, 8, 'water'], ['הכנרת', 32.82, 35.59, 9, 'water'],
+      ['ביירות', 33.89, 35.50, 4], ['דמשק', 33.51, 36.29, 4], ['עמאן', 31.95, 35.93, 4], ['קהיר', 30.04, 31.24, 4],
+      ['ניקוסיה', 35.17, 33.36, 4], ['אנקרה', 39.93, 32.86, 4], ['בגדד', 33.31, 44.36, 4], ['ריאד', 24.71, 46.68, 4],
+      ['אתונה', 37.98, 23.73, 4], ['איסטנבול', 41.01, 28.98, 4], ['אלכסנדריה', 31.20, 29.92, 5], ['עקבה', 29.53, 35.00, 8],
+      ['רומא', 41.9, 12.5, 3], ['פריז', 48.86, 2.35, 3], ['לונדון', 51.5, -0.12, 3], ['ברלין', 52.52, 13.4, 3],
+      ['מוסקבה', 55.75, 37.6, 3], ['טהרן', 35.7, 51.4, 3], ['דובאי', 25.2, 55.27, 4],
+      ['הים התיכון', 33.6, 31.2, 4, 'sea'], ['הים האדום', 22.5, 37.8, 4, 'sea'], ['הים השחור', 43.2, 34.5, 4, 'sea'],
+    ];
+    this.placeMarkers = P.map(([name, lat, lon, minZ, kind]) => ({
+      minZ, kind,
+      m: L.marker([lat, lon], {
+        pane: 'labels', interactive: false, keyboard: false,
+        icon: L.divIcon({ className: `citylbl ${kind || ''}`, html: `${kind === 'sea' || kind === 'water' || kind === 'peak' ? '' : '<i></i>'}<span>${name}</span>`, iconSize: [0, 0] }),
+      }),
+    }));
+    const update = () => {
+      const z = this.map.getZoom();
+      for (const p of this.placeMarkers) {
+        const show = z >= p.minZ && !(p.kind === 'sea' && z > 8);
+        if (show && !this.map.hasLayer(p.m)) p.m.addTo(this.map);
+        if (!show && this.map.hasLayer(p.m)) this.map.removeLayer(p.m);
+      }
+    };
+    this.map.on('zoomend', update);
+    update();
   }
 
   setPlace(p) {
