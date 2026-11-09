@@ -150,6 +150,16 @@ export const LAYERS = [
   },
 ];
 
+// Layers share a few "bundles" so switching layers re-uses one download instead of hitting the API again.
+export const BUNDLES = {
+  sfc: ['temperature_2m', 'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'precipitation', 'cloud_cover',
+    'pressure_msl', 'relative_humidity_2m', 'dew_point_2m', 'visibility', 'uv_index', 'cape', 'freezing_level_height'],
+  upper: ['temperature_850hPa', 'wind_speed_850hPa', 'wind_direction_850hPa', 'geopotential_height_500hPa',
+    'temperature_500hPa', 'wind_speed_250hPa', 'wind_direction_250hPa'],
+  marine: ['wave_height', 'wave_direction', 'wave_period', 'sea_surface_temperature'],
+};
+export const bundleOf = (l) => (l.marine ? 'marine' : l.vars.some(v => v.includes('hPa')) ? 'upper' : 'sfc');
+
 export const LAYER_BY_ID = Object.fromEntries(LAYERS.map(l => [l.id, l]));
 
 export function isUnlocked(layer, st) {

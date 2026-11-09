@@ -1,7 +1,7 @@
 // Interactive weather map: Leaflet base + canvas heatmap, wind particles, isolines, radar/satellite tiles.
 /* global L */
 import { grid, rainviewer, pointNow } from './api.js';
-import { LAYERS, LAYER_BY_ID, SCALES, makeScale, isUnlocked } from './layers.js';
+import { LAYERS, LAYER_BY_ID, SCALES, BUNDLES, bundleOf, makeScale, isUnlocked } from './layers.js';
 import { upsample, isoline, levels, extrema, sample } from './contour.js';
 import { store } from './store.js';
 import { el, hhmm, relDay, round, dirName, windUV, toast, nearestIndex } from './util.js';
@@ -38,9 +38,10 @@ export class WeatherMap {
     this.infoBtn = el('button', { class: 'fab info', 'aria-label': 'הסבר' }, '?');
     this.locBtn = el('button', { class: 'fab loc', 'aria-label': 'המיקום שלי' }, '◎');
     this.sheet = el('div', { class: 'sheet hidden' });
+    this.hint = el('div', { class: 'maphint hidden' });
     this.infoCard = el('div', { class: 'infocard hidden' });
     this.root.append(this.mapEl, this.chips, this.loading, this.infoBtn, this.locBtn, this.infoCard,
-      el('div', { class: 'mapbottom' }, this.legend, this.timebar), this.sheet);
+      el('div', { class: 'mapbottom' }, this.hint, this.legend, this.timebar), this.sheet);
 
     this.slider.addEventListener('input', () => { this.setTime(+this.slider.value); });
     this.playBtn.addEventListener('click', () => this.togglePlay());
@@ -176,9 +177,9 @@ export class WeatherMap {
       // [name, lat, lon, minZoom, kind]
       ['ירושלים', 31.778, 35.235, 5, 'big'], ['תל אביב', 32.08, 34.78, 5, 'big'], ['חיפה', 32.79, 34.99, 5, 'big'],
       ['באר שבע', 31.25, 34.79, 5, 'big'], ['אילת', 29.56, 34.95, 5, 'big'],
-      ['טבריה', 32.79, 35.53, 7], ['נצרת', 32.70, 35.30, 7], ['צפת', 32.965, 35.496, 7], ['קריית שמונה', 33.207, 35.571, 7],
-      ['אשדוד', 31.80, 34.65, 7], ['אשקלון', 31.67, 34.57, 7], ['נתניה', 32.33, 34.86, 7], ['דימונה', 31.07, 35.03, 7],
-      ['מצפה רמון', 30.61, 34.80, 7], ['עין בוקק', 31.20, 35.36, 7], ['קצרין', 32.99, 35.69, 7], ['ערד', 31.26, 35.21, 8],
+      ['טבריה', 32.79, 35.53, 7], ['נצרת', 32.70, 35.30, 8], ['צפת', 32.965, 35.496, 8], ['קריית שמונה', 33.207, 35.571, 7],
+      ['אשדוד', 31.80, 34.65, 7], ['אשקלון', 31.67, 34.57, 8], ['נתניה', 32.33, 34.86, 7], ['דימונה', 31.07, 35.03, 8],
+      ['מצפה רמון', 30.61, 34.80, 7], ['עין בוקק', 31.20, 35.36, 9], ['קצרין', 32.99, 35.69, 9], ['ערד', 31.26, 35.21, 9],
       ['רמת גן', 32.08, 34.81, 9], ['הרצליה', 32.165, 34.84, 9], ['רחובות', 31.89, 34.81, 8], ['מודיעין', 31.90, 35.01, 8],
       ['בית שאן', 32.50, 35.50, 8], ['עפולה', 32.61, 35.29, 8], ['נהריה', 33.01, 35.10, 8], ['אריאל', 32.10, 35.17, 9],
       ['החרמון ▲', 33.30, 35.79, 7, 'peak'], ['ים המלח', 31.50, 35.48, 8, 'water'], ['הכנרת', 32.82, 35.59, 9, 'water'],
@@ -236,31 +237,40 @@ export class WeatherMap {
     this.W = s.x; this.H = s.y;
   }
 
+  setHint(txt) {
+    this.hint.textContent = txt;
+    this.hint.classList.toggle('hidden', !txt);
+  }
+
   clear(c) { c.getContext('2d').clearRect(0, 0, c.width, c.height); }
 
   // ---------- data ----------
   fetchBounds() {
     const b = this.map.getBounds();
     let lat0 = b.getSouth(), lat1 = b.getNorth(), lon0 = b.getWest(), lon1 = b.getEast();
-    const pl = (lat1 - lat0) * 0.2, pw = (lon1 - lon0) * 0.2;
+    const pl = (lat1 - lat0) * 0.4, pw = (lon1 - lon0) * 0.4;
     lat0 = Math.max(-75, lat0 - pl); lat1 = Math.min(75, lat1 + pl);
     lon0 = Math.max(-179.5, lon0 - pw); lon1 = Math.min(179.5, lon1 + pw);
     const midLat = (lat0 + lat1) / 2;
     const aspect = ((lon1 - lon0) * Math.cos(midLat * Math.PI / 180)) / (lat1 - lat0);
-    const N = 120;
-    let nx = Math.round(Math.sqrt(N * aspect)); nx = Math.max(6, Math.min(16, nx));
-    let ny = Math.round(N / nx); ny = Math.max(6, Math.min(16, ny));
+    const N = 72;
+    let nx = Math.round(Math.sqrt(N * aspect)); nx = Math.max(6, Math.min(12, nx));
+    let ny = Math.round(N / nx); ny = Math.max(6, Math.min(12, ny));
     return { lat0, lat1, lon0, lon1, nx, ny };
   }
 
   maybeRefetch() {
     const l = this.layer;
     if (l.tiles || !this.grid) return;
-    const g = this.grid;
+    if (!this.covers(this.grid)) this.load();
+  }
+
+  /** Does a cached grid cover the current view at a suitable resolution? */
+  covers(g) {
     const b = this.map.getBounds();
-    const inside = b.getSouth() >= g.lat0 && b.getNorth() <= g.lat1 && b.getWest() >= g.lon0 && b.getEast() <= g.lon1;
     const z = this.map.getZoom();
-    if (!inside || Math.abs(z - this.fetchZoom) >= 1.5) this.load();
+    const inside = b.getSouth() >= g.lat0 && b.getNorth() <= g.lat1 && b.getWest() >= g.lon0 && b.getEast() <= g.lon1;
+    return inside && z - g.zoom < 1.5 && g.zoom - z < 1.5 && Date.now() - g.fetchedAt < 60 * 60e3;
   }
 
   async load() {
@@ -271,12 +281,20 @@ export class WeatherMap {
     if (l.tiles === 'radar') return this.loadRadar(seq);
     if (l.tiles === 'satellite') return this.loadSatellite();
     this.timebar.classList.remove('hidden');
-    const fb = this.fetchBounds();
-    this.loading.classList.remove('hidden');
+    const bundle = bundleOf(l);
+    this.cache = this.cache || {};
+    let g = this.cache[bundle];
+    const usable = g && this.covers(g);
+    if (!usable) this.loading.classList.remove('hidden');
     try {
-      const g = await grid(l.vars, fb, { nx: fb.nx, ny: fb.ny, marine: !!l.marine });
+      if (!usable) {
+        const fb = this.fetchBounds();
+        g = await grid(BUNDLES[bundle], fb, { nx: fb.nx, ny: fb.ny, marine: bundle === 'marine' });
+        g.zoom = this.map.getZoom();
+        g.fetchedAt = Date.now();
+        this.cache[bundle] = g;
+      }
       if (seq !== this.fetchSeq) return;
-      this.fetchZoom = this.map.getZoom();
       const prevT = this.grid ? this.grid.times[this.t] : null;
       this.grid = g;
       this.prepUV();
@@ -288,7 +306,16 @@ export class WeatherMap {
       this.renderLegend();
       this.draw();
     } catch (e) {
-      if (seq === this.fetchSeq) toast(e.message || 'שגיאה בטעינת הנתונים');
+      if (seq !== this.fetchSeq) return;
+      // fall back to an older grid of the same bundle if we have one
+      if (g && g.data) {
+        this.grid = g; this.prepUV(); this.renderLegend(); this.draw();
+      }
+      toast(e.message || 'שגיאה בטעינת הנתונים', 4000);
+      if (/מגבלת/.test(e.message || '')) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => { if (this.layer === l) this.load(); }, 70e3);
+      }
     } finally {
       if (seq === this.fetchSeq) this.loading.classList.add('hidden');
     }
@@ -316,6 +343,7 @@ export class WeatherMap {
     this.radar = null;
     this.grid = null;
     this.uv = null;
+    this.setHint('');
     [this.heat, this.part, this.vec].forEach(c => this.clear(c));
     this.stopParticles();
   }
@@ -335,6 +363,13 @@ export class WeatherMap {
         pane: 'wxtiles', opacity: 0, maxNativeZoom: 7, maxZoom: 12, tileSize: 256, attribution: 'RainViewer',
       }).addTo(this.map));
       this.tileLayers = layers;
+      let ok = 0, bad = 0;
+      layers.forEach(t => { t.on('tileload', () => ok++); t.on('tileerror', () => bad++); });
+      setTimeout(() => {
+        if (this.layer.tiles !== 'radar') return;
+        if (bad > 0 && ok === 0) this.setHint('שרת המכ״ם לא מחזיר תמונות כרגע. נסה שוב מאוחר יותר.');
+        else this.setHint('צבעים יופיעו רק איפה שיורד גשם עכשיו. אם הכול ריק, פשוט לא יורד גשם באזור.');
+      }, 4000);
       this.radar = { frames, i: frames.length - 1 - (d.radar?.nowcast?.length || 0) };
       this.slider.max = frames.length - 1;
       this.slider.value = this.radar.i;
@@ -432,7 +467,13 @@ export class WeatherMap {
     const ctx = this.heat.getContext('2d');
     ctx.clearRect(0, 0, this.heat.width, this.heat.height);
     const f = this.field(l.heat);
+    this.setHint('');
     if (!f) return;
+    if (['precipitation', 'cape'].includes(l.heat)) {
+      let mx = 0;
+      for (const v of f) if (v > mx) mx = v;
+      if (mx < (l.heat === 'cape' ? 50 : 0.1)) this.setHint(l.heat === 'cape' ? 'אין CAPE באזור בשעה הזו: האוויר יציב. הזז את הסליידר כדי לחפש.' : 'לא צפוי גשם באזור בשעה הזו. ▶ הפעל כדי לראות את הימים הקרובים.');
+    }
     const sc = scales[l.scale];
     const step = 4;
     const w = Math.ceil(this.W / step), h = Math.ceil(this.H / step);

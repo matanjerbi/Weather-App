@@ -9,7 +9,7 @@ const { dewpoint, lcl, parcel, capeCin, moistAdiabat, theta, dryAdiabat } = awai
 const { rideScore, bestWindows } = await import(W('moto.js'));
 const { prepare, dayStats } = await import(W('wx.js'));
 const { insights } = await import(W('insights.js'));
-const { makeScale, SCALES, LAYERS } = await import(W('layers.js'));
+const { makeScale, SCALES, LAYERS, BUNDLES, bundleOf } = await import(W('layers.js'));
 const { windUV, dirName, beaufort } = await import(W('util.js'));
 const { LESSONS, GLOSSARY } = await import(W('lessons.js'));
 const { scorePrediction } = await import(W('game.js'));
@@ -116,6 +116,7 @@ t('scales & layers', () => {
     assert.ok(l.vars.includes(l.heat), 'heat var not fetched for ' + l.id);
     if (l.particles) l.particles.forEach(v => assert.ok(l.vars.includes(v), l.id + ' missing particle var ' + v));
     if (l.contour) assert.ok(l.vars.includes(l.contour.var));
+    for (const v of l.vars) assert.ok(BUNDLES[bundleOf(l)].includes(v), `${l.id}: ${v} missing from bundle ${bundleOf(l)}`);
   }
 });
 
